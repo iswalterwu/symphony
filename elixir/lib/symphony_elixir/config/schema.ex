@@ -271,6 +271,7 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
+    field(:project_repos, :map, default: %{})
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -353,7 +354,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [])
+    |> cast(attrs, [:project_repos], empty_values: [])
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
@@ -363,6 +364,37 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
+    |> update_change(:project_repos, &normalize_project_repos/1)
+    |> validate_project_repos()
+  end
+
+  @doc false
+  @spec normalize_project_repos(nil | map()) :: map()
+  def normalize_project_repos(nil), do: %{}
+
+  def normalize_project_repos(repos) when is_map(repos) do
+    Enum.reduce(repos, %{}, fn {project_name, repo_url}, acc ->
+      Map.put(acc, to_string(project_name), repo_url)
+    end)
+  end
+
+  @doc false
+  @spec validate_project_repos(Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  def validate_project_repos(changeset) do
+    validate_change(changeset, :project_repos, fn :project_repos, repos ->
+      Enum.flat_map(repos, fn {project_name, repo_url} ->
+        cond do
+          to_string(project_name) == "" ->
+            [{:project_repos, "project names must not be blank"}]
+
+          not is_binary(repo_url) or String.trim(repo_url) == "" ->
+            [{:project_repos, "repo URLs must be non-empty strings"}]
+
+          true ->
+            []
+        end
+      end)
+    end)
   end
 
   defp finalize_settings(settings) do

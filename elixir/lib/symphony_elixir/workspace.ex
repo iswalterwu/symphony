@@ -293,12 +293,13 @@ defmodule SymphonyElixir.Workspace do
 
   defp run_hook(command, workspace, issue_context, hook_name, nil) do
     timeout_ms = Config.settings!().hooks.timeout_ms
+    hook_env = hook_env_vars(issue_context)
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true)
+        System.cmd("sh", ["-lc", command], cd: workspace, env: hook_env, stderr_to_stdout: true)
       end)
 
     case Task.yield(task, timeout_ms) do
@@ -319,7 +320,13 @@ defmodule SymphonyElixir.Workspace do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case run_remote_command(worker_host, "cd #{shell_escape(workspace)} && #{command}", timeout_ms) do
+    env_prefix = hook_env_remote_prefix(hook_env_vars(issue_context))
+
+    case run_remote_command(
+           worker_host,
+           "#{env_prefix}cd #{shell_escape(workspace)} && #{command}",
+           timeout_ms
+         ) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
@@ -329,6 +336,33 @@ defmodule SymphonyElixir.Workspace do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp hook_env_vars(issue_context) do
+    project_name = Map.get(issue_context, :project_name)
+    project_id = Map.get(issue_context, :project_id)
+
+    repo_url =
+      case project_name do
+        name when is_binary(name) ->
+          Config.settings!().project_repos |> Map.get(name)
+
+        _ ->
+          nil
+      end
+
+    [
+      {"SYMPHONY_ISSUE_IDENTIFIER", Map.get(issue_context, :issue_identifier) || ""},
+      {"SYMPHONY_ISSUE_PROJECT_ID", project_id || ""},
+      {"SYMPHONY_ISSUE_PROJECT_NAME", project_name || ""},
+      {"SYMPHONY_PROJECT_REPO_URL", repo_url || ""}
+    ]
+  end
+
+  defp hook_env_remote_prefix(env) when is_list(env) do
+    Enum.map_join(env, "", fn {name, value} ->
+      "#{name}=#{shell_escape(value)} export #{name}; "
+    end)
   end
 
   defp handle_hook_command_result({_output, 0}, _workspace, _issue_id, _hook_name) do
@@ -456,24 +490,30 @@ defmodule SymphonyElixir.Workspace do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp issue_context(%{id: issue_id, identifier: identifier}) do
+  defp issue_context(%{id: issue_id, identifier: identifier} = issue) do
     %{
       issue_id: issue_id,
-      issue_identifier: identifier || "issue"
+      issue_identifier: identifier || "issue",
+      project_id: Map.get(issue, :project_id),
+      project_name: Map.get(issue, :project_name)
     }
   end
 
   defp issue_context(identifier) when is_binary(identifier) do
     %{
       issue_id: nil,
-      issue_identifier: identifier
+      issue_identifier: identifier,
+      project_id: nil,
+      project_name: nil
     }
   end
 
   defp issue_context(_identifier) do
     %{
       issue_id: nil,
-      issue_identifier: "issue"
+      issue_identifier: "issue",
+      project_id: nil,
+      project_name: nil
     }
   end
 

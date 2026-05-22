@@ -17,14 +17,25 @@ polling:
   interval_ms: 5000
 workspace:
   root: ~/code/symphony-workspaces
+project_repos:
+  Symphony: "https://github.com/openai/symphony"
 hooks:
   after_create: |
-    git clone --depth 1 https://github.com/openai/symphony .
-    if command -v mise >/dev/null 2>&1; then
+    set -eu
+    if [ -z "${SYMPHONY_PROJECT_REPO_URL:-}" ]; then
+      project_label="${SYMPHONY_ISSUE_PROJECT_NAME:-<unknown>}"
+      echo "workspace bootstrap aborted: no repo configured for Linear project '${project_label}'." >&2
+      echo "Add an entry under \`project_repos\` in WORKFLOW.md mapping the project name to its repository URL." >&2
+      exit 1
+    fi
+    git clone --depth 1 "$SYMPHONY_PROJECT_REPO_URL" .
+    if command -v mise >/dev/null 2>&1 && [ -d elixir ]; then
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
   before_remove: |
-    cd elixir && mise exec -- mix workspace.before_remove
+    if [ -d elixir ]; then
+      cd elixir && mise exec -- mix workspace.before_remove
+    fi
 agent:
   max_concurrent_agents: 10
   max_turns: 20

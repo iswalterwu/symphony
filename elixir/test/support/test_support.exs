@@ -124,6 +124,7 @@ defmodule SymphonyElixir.TestSupport do
           observability_render_interval_ms: 16,
           server_port: nil,
           server_host: nil,
+          project_repos: nil,
           prompt: @workflow_prompt
         ],
         overrides
@@ -161,6 +162,7 @@ defmodule SymphonyElixir.TestSupport do
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
+    project_repos = Keyword.get(config, :project_repos)
     prompt = Keyword.get(config, :prompt)
 
     sections =
@@ -195,6 +197,7 @@ defmodule SymphonyElixir.TestSupport do
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
+        project_repos_yaml(project_repos),
         "---",
         prompt
       ]
@@ -263,6 +266,18 @@ defmodule SymphonyElixir.TestSupport do
       "  render_interval_ms: #{yaml_value(render_interval_ms)}"
     ]
     |> Enum.join("\n")
+  end
+
+  defp project_repos_yaml(nil), do: nil
+  defp project_repos_yaml(repos) when map_size(repos) == 0, do: nil
+
+  defp project_repos_yaml(repos) when is_map(repos) do
+    entries =
+      Enum.map_join(repos, "\n", fn {name, url} ->
+        "  #{yaml_value(to_string(name))}: #{yaml_value(url)}"
+      end)
+
+    "project_repos:\n#{entries}"
   end
 
   defp server_yaml(nil, nil), do: nil

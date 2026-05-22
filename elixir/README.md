@@ -132,6 +132,29 @@ Notes:
   `git clone ... .` there, along with any other setup commands you need.
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
+- All workspace hooks receive the following environment variables:
+  - `SYMPHONY_ISSUE_IDENTIFIER`
+  - `SYMPHONY_ISSUE_PROJECT_ID`
+  - `SYMPHONY_ISSUE_PROJECT_NAME`
+  - `SYMPHONY_PROJECT_REPO_URL` — resolved from the top-level `project_repos` map by the
+    issue's Linear project name; empty when no entry exists.
+
+  Use `SYMPHONY_PROJECT_REPO_URL` in `hooks.after_create` to clone the right repository per
+  project, and fail fast when it is empty rather than silently cloning a default repo. Example:
+
+  ```yaml
+  project_repos:
+    Symphony: "https://github.com/openai/symphony"
+    "Stock Research": "https://github.com/example/stock-research"
+  hooks:
+    after_create: |
+      set -eu
+      if [ -z "${SYMPHONY_PROJECT_REPO_URL:-}" ]; then
+        echo "no repo configured for ${SYMPHONY_ISSUE_PROJECT_NAME:-<unknown>}" >&2
+        exit 1
+      fi
+      git clone --depth 1 "$SYMPHONY_PROJECT_REPO_URL" .
+  ```
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
 - For path values, `~` is expanded to the home directory.
 - For env-backed path values, use `$VAR`. `workspace.root` resolves `$VAR` before path handling,

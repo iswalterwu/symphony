@@ -333,6 +333,7 @@ Top-level keys:
 - `hooks`
 - `agent`
 - `codex`
+- `project_repos`
 
 Unknown keys SHOULD be ignored for forward compatibility.
 
@@ -405,6 +406,17 @@ Fields:
   - Invalid values fail configuration validation.
   - Changes SHOULD be re-applied at runtime for future hook executions.
 
+Hook execution environment:
+
+- The runtime MUST expose the following environment variables to every hook script:
+  - `SYMPHONY_ISSUE_IDENTIFIER` — the sanitized issue identifier (or empty when unknown).
+  - `SYMPHONY_ISSUE_PROJECT_ID` — the Linear project ID for the issue, or empty when unknown.
+  - `SYMPHONY_ISSUE_PROJECT_NAME` — the Linear project name for the issue, or empty when unknown.
+  - `SYMPHONY_PROJECT_REPO_URL` — the repository URL resolved from `project_repos` for the issue's
+    project name, or empty when no mapping exists.
+- Hook scripts SHOULD treat an empty `SYMPHONY_PROJECT_REPO_URL` as a missing mapping and fail fast
+  rather than substituting an unrelated default.
+
 #### 5.3.5 `agent` (object)
 
 Fields:
@@ -453,6 +465,22 @@ fields locally if they want stricter startup checks.
 - `stall_timeout_ms` (integer)
   - Default: `300000` (5 minutes)
   - If `<= 0`, stall detection is disabled.
+
+#### 5.3.7 `project_repos` (map)
+
+Fields:
+
+- A map from Linear project name (string) to repository URL (string).
+- Default: empty map.
+- Keys MUST be non-blank strings; values MUST be non-empty strings; otherwise configuration
+  validation MUST fail.
+
+Purpose:
+
+- Allows `hooks.after_create` (and any other hook) to discover the correct workspace repository for
+  the issue's Linear project via the `SYMPHONY_PROJECT_REPO_URL` environment variable.
+- An unmapped project results in an empty `SYMPHONY_PROJECT_REPO_URL` so hook scripts can fail fast
+  rather than fall back to an unrelated repository.
 
 ### 5.4 Prompt Template Contract
 
@@ -594,6 +622,7 @@ not require recognizing or validating extension fields unless that extension is 
 - `codex.turn_timeout_ms`: integer, default `3600000`
 - `codex.read_timeout_ms`: integer, default `5000`
 - `codex.stall_timeout_ms`: integer, default `300000`
+- `project_repos`: map of `<project_name>` => `<repo_url>` strings, default `{}`
 
 ## 7. Orchestration State Machine
 
