@@ -31,6 +31,10 @@ defmodule SymphonyElixir.Linear.Client do
             name
           }
         }
+        project {
+          id
+          name
+        }
         inverseRelations(first: $relationFirst) {
           nodes {
             type
@@ -75,6 +79,10 @@ defmodule SymphonyElixir.Linear.Client do
           nodes {
             name
           }
+        }
+        project {
+          id
+          name
         }
         inverseRelations(first: $relationFirst) {
           nodes {
@@ -458,6 +466,8 @@ defmodule SymphonyElixir.Linear.Client do
       branch_name: issue["branchName"],
       url: issue["url"],
       assignee_id: assignee_field(assignee, "id"),
+      project_id: extract_project_field(issue, "id"),
+      project_name: extract_project_field(issue, "name"),
       blocked_by: extract_blockers(issue),
       labels: extract_labels(issue),
       assigned_to_worker: assigned_to_worker?(assignee, assignee_filter),
@@ -546,6 +556,15 @@ defmodule SymphonyElixir.Linear.Client do
   end
 
   defp extract_labels(_), do: []
+
+  defp extract_project_field(%{"project" => project}, field) when is_map(project) and is_binary(field) do
+    case Map.get(project, field) do
+      value when is_binary(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp extract_project_field(_issue, _field), do: nil
 
   defp extract_blockers(%{"inverseRelations" => %{"nodes" => inverse_relations}})
        when is_list(inverse_relations) do

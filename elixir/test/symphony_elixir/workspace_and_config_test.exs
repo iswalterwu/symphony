@@ -632,6 +632,179 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "after_create hook receives SYMPHONY_PROJECT_REPO_URL for mapped project" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-project-repo-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      env_log = Path.join(test_root, "env.log")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        project_repos: %{
+          "多功能股票投研一体机" => "https://github.com/iswalterwu/stock-reserach-pro"
+        },
+        hook_after_create: "printf '%s\\n%s\\n%s\\n' \"$SYMPHONY_ISSUE_IDENTIFIER\" \"$SYMPHONY_ISSUE_PROJECT_NAME\" \"$SYMPHONY_PROJECT_REPO_URL\" > \"#{env_log}\""
+      )
+
+      issue = %Issue{
+        id: "issue-uuid",
+        identifier: "STOCK-7",
+        project_id: "project-uuid",
+        project_name: "多功能股票投研一体机"
+      }
+
+      assert {:ok, _workspace} = Workspace.create_for_issue(issue)
+      contents = File.read!(env_log)
+      assert contents == "STOCK-7\n多功能股票投研一体机\nhttps://github.com/iswalterwu/stock-reserach-pro\n"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "after_create hook receives empty repo URL when project has no mapping" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-project-repo-missing-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      env_log = Path.join(test_root, "env.log")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        project_repos: %{
+          "Some Other Project" => "https://example.com/repo.git"
+        },
+        hook_after_create: "printf '%s|%s|%s' \"$SYMPHONY_ISSUE_PROJECT_NAME\" \"$SYMPHONY_PROJECT_REPO_URL\" missing > \"#{env_log}\""
+      )
+
+      issue = %Issue{
+        id: "issue-uuid",
+        identifier: "UNMAPPED-1",
+        project_id: "project-uuid",
+        project_name: "Unmapped Project"
+      }
+
+      assert {:ok, _workspace} = Workspace.create_for_issue(issue)
+      assert File.read!(env_log) == "Unmapped Project||missing"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "after_create hook can fail fast when no project repo is configured" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-fail-fast-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "if [ -z \"${SYMPHONY_PROJECT_REPO_URL:-}\" ]; then echo \"no repo for ${SYMPHONY_ISSUE_PROJECT_NAME:-<unknown>}\" >&2; exit 1; fi"
+      )
+
+      issue = %Issue{
+        id: "issue-uuid",
+        identifier: "NO-REPO-1",
+        project_id: "project-uuid",
+        project_name: "Unknown Project"
+      }
+
+      assert {:error, {:workspace_hook_failed, "after_create", 1, output}} =
+               Workspace.create_for_issue(issue)
+
+      assert IO.iodata_to_binary(output) =~ "no repo for Unknown Project"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "Linear client normalize_issue extracts project id and name" do
+    raw_issue = %{
+      "id" => "issue-uuid",
+      "identifier" => "ISW-14",
+      "title" => "Symphony hooks blanket-clones openai/symphony",
+      "state" => %{"name" => "Todo"},
+      "branchName" => "fix/hooks",
+      "url" => "https://linear.app/example/issue/ISW-14",
+      "project" => %{
+        "id" => "project-uuid",
+        "name" => "多功能股票投研一体机"
+      },
+      "labels" => %{"nodes" => []}
+    }
+
+    issue = Client.normalize_issue_for_test(raw_issue)
+
+    assert %Issue{} = issue
+    assert issue.project_id == "project-uuid"
+    assert issue.project_name == "多功能股票投研一体机"
+  end
+
+  test "Linear client normalize_issue tolerates missing project" do
+    raw_issue = %{
+      "id" => "issue-uuid",
+      "identifier" => "ISW-15",
+      "state" => %{"name" => "Todo"},
+      "labels" => %{"nodes" => []}
+    }
+
+    issue = Client.normalize_issue_for_test(raw_issue)
+
+    assert issue.project_id == nil
+    assert issue.project_name == nil
+  end
+
+  test "Config schema parses project_repos mapping" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-config-project-repos-#{System.unique_integer([:positive])}"
+      )
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: workspace_root,
+      project_repos: %{
+        "Symphony" => "https://github.com/openai/symphony",
+        "多功能股票投研一体机" => "https://github.com/iswalterwu/stock-reserach-pro"
+      }
+    )
+
+    config = Config.settings!()
+
+    assert config.project_repos == %{
+             "Symphony" => "https://github.com/openai/symphony",
+             "多功能股票投研一体机" => "https://github.com/iswalterwu/stock-reserach-pro"
+           }
+  end
+
+  test "Config schema defaults project_repos to empty map" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-config-no-project-repos-#{System.unique_integer([:positive])}"
+      )
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    config = Config.settings!()
+    assert config.project_repos == %{}
+  end
+
   test "workspace remove continues when before_remove hook fails" do
     test_root =
       Path.join(
@@ -1001,6 +1174,22 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert changeset.errors == [
              limits: {"state names must not be blank", []},
              limits: {"limits must be positive integers", []}
+           ]
+
+    assert Schema.normalize_project_repos(nil) == %{}
+
+    assert Schema.normalize_project_repos(%{symphony: "https://example.com/repo.git"}) == %{
+             "symphony" => "https://example.com/repo.git"
+           }
+
+    project_repos_changeset =
+      {%{}, %{project_repos: :map}}
+      |> Changeset.cast(%{project_repos: %{"" => "https://example.com/repo.git", "ok" => ""}}, [:project_repos])
+      |> Schema.validate_project_repos()
+
+    assert project_repos_changeset.errors == [
+             project_repos: {"project names must not be blank", []},
+             project_repos: {"repo URLs must be non-empty strings", []}
            ]
   end
 
